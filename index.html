@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-band="915">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>LoRa2021 · painel</title>
+<!-- caminho RELATIVO de propósito: no ESP32 a página é servida da raiz do
+     LittleFS, mas no preview local ela abre em /data/. Relativo serve aos dois. -->
+<!-- Icone embutido, e nao um arquivo.
+     O firmware serve so index.html, style.css e app.js: um favicon.ico
+     daria 404 na placa. Inline vale nos tres lugares — placa, Live
+     Server e GitHub Pages — e de quebra evita a requisicao automatica
+     de /favicon.ico que o navegador faz quando nao ha <link>. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%230d1211%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%236cf0a0%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M11.5%2020.5a6.4%206.4%200%200%201%200-9%22%2F%3E%3Cpath%20d%3D%22M20.5%2011.5a6.4%206.4%200%200%201%200%209%22%2F%3E%3Cpath%20d%3D%22M7%2025a12.7%2012.7%200%200%201%200-18%22%2F%3E%3Cpath%20d%3D%22M25%207a12.7%2012.7%200%200%201%200%2018%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%223.1%22%20fill%3D%22%236cf0a0%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="device">
+
+  <!-- ═══════════════════════════════════════════════════════ chassi ═════ -->
+  <header class="chassis">
+    <i class="screw screw--tl" aria-hidden="true"></i>
+    <i class="screw screw--tr" aria-hidden="true"></i>
+
+    <div class="chassis__id">
+      <h1 class="etch">LoRa<span>2021</span></h1>
+      <p class="silk">SEMTECH LR2021 · SUB-GHZ / S-BAND / 2G4 · BENCH UNIT</p>
+    </div>
+
+    <div class="chassis__meta">
+      <div class="plate">
+        <label>NODE</label>
+        <output id="node">····</output>
+      </div>
+      <!-- Transporte. Pelo AP da placa o painel fala HTTP; no PC, com a placa
+           no USB, ele fala Web Serial e o WiFi da placa nem precisa estar
+           ligado — o que importa nos pares 2G4, onde o AP dessensibiliza o
+           proprio receptor. -->
+      <div class="plate">
+        <label>Fonte</label>
+        <output id="transport" data-mode="http">WiFi · HTTP</output>
+        <button class="btn btn--ghost" id="btSerial" type="button">USB</button>
+        <button class="btn btn--ghost" id="btSerialOff" type="button" hidden>fechar</button>
+      </div>
+      <div class="plate plate--link" id="link" data-state="off">
+        <label>ENLACE</label>
+        <output><span class="lamp"></span><span id="linkTxt">AUSENTE</span></output>
+      </div>
+    </div>
+  </header>
+
+  <!-- rádio fora: o painel continua no ar de propósito, pra servir de
+       diagnóstico em vez de a placa ficar muda -->
+  <p class="warn warn--top" id="radioWarn" hidden>
+    <b>Rádio não inicializou</b> — <span id="radioErr">·</span>.
+    Verifique 3V3, fiação SPI, NRST/BUSY, a tensão do TCXO e qual DIO do módulo
+    está no pino de interrupção.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════ abas ══════ -->
+  <!-- Duas leituras diferentes da mesma bancada: o que o radio esta fazendo
+       AGORA, e o que as campanhas ja mediram. Separadas por aba porque a
+       segunda so existe com internet — no AP da placa nao ha rota para o
+       banco, e misturar as duas deixaria metade do painel morta sem explicar
+       por que. -->
+  <nav class="tabs" role="tablist">
+    <button class="tabs__b" id="tabBench" role="tab" aria-selected="true">Bancada</button>
+    <button class="tabs__b" id="tabGauges" role="tab" aria-selected="false">Mostradores</button>
+    <button class="tabs__b" id="tabDb" role="tab" aria-selected="false">Banco de dados</button>
+  </nav>
+
+  <!-- A tela, os controles e o registro sao a MESMA vista: todos falam do
+       radio agora. Ficam juntos num container so para a aba trocar os tres de
+       uma vez — antes a barra ficava abaixo do grafico, e para achar a aba do
+       mapa era preciso rolar por todo o painel de bancada. -->
+  <div id="viewBench">
+
+  <!-- ═══════════════════════════════════════════════════════ tela ═══════ -->
+  <section class="screen">
+    <!-- vinheta ABAIXO do conteúdo: acima dela escurecia os contadores de
+         forma desigual, apagando justo os das pontas. O reflexo do vidro,
+         esse sim, fica por cima. -->
+    <div class="screen__vign" aria-hidden="true"></div>
+    <div class="screen__gloss" aria-hidden="true"></div>
+    <div class="screen__sweep" aria-hidden="true"></div>
+
+    <div class="screen__top">
+
+      <!-- ponteiro -->
+      <figure class="smeter">
+        <!-- folga lateral generosa: com os rótulos por fora do arco e o de
+             -130 ancorado pela direita, um box mais justo cortava o sinal -->
+        <svg viewBox="-28 -6 296 152" role="img" aria-label="Medidor de sinal">
+          <defs>
+            <linearGradient id="arcG" x1="0" x2="1">
+              <stop offset="0"   stop-color="var(--bad)"/>
+              <stop offset=".45" stop-color="var(--warn)"/>
+              <stop offset="1"   stop-color="var(--glow)"/>
+            </linearGradient>
+          </defs>
+          <!-- a escala impressa é que carrega o gradiente; o preenchido é
+               sólido no acento. Antes o arco começava sempre em vermelho e
+               gritava alarme mesmo com sinal ótimo. -->
+          <path class="smeter__track" d="M32 124 A 88 88 0 0 1 208 124"/>
+          <path class="smeter__arc" id="arc" d="M32 124 A 88 88 0 0 1 208 124"/>
+          <g class="smeter__ticks" id="ticks"></g>
+          <g class="smeter__needle" id="needle">
+            <line class="smeter__tail" x1="120" y1="124" x2="120" y2="139"/>
+            <polygon points="117.2,124 120,44 122.8,124"/>
+            <circle class="smeter__hub" cx="120" cy="124" r="5"/>
+            <circle class="smeter__pin" cx="120" cy="124" r="1.6"/>
+          </g>
+        </svg>
+      </figure>
+
+      <!-- leitura numérica -->
+      <div class="digits">
+        <div class="digits__main">
+          <output id="rssi">–––.–</output>
+          <span class="digits__u">dBm</span>
+        </div>
+        <div class="digits__sub">
+          <span><i>SNR</i><b id="snr">––.–</b>dB</span>
+          <span><i>TOA</i><b id="toa">–––</b>ms</span>
+        </div>
+        <!-- Por que nao ha leitura. Vazio quando ha. -->
+        <p class="note" id="rssiNote"></p>
+      </div>
+
+      <!-- contadores: ocupam o vazio que sobrava no alto à direita -->
+      <dl class="counters">
+        <div><dt>Enviados</dt><dd id="tx">0</dd></div>
+        <div><dt>Recebidos</dt><dd id="rx">0</dd></div>
+        <div><dt>CRC ruim</dt><dd id="err">0</dd></div>
+        <div><dt>Ida e volta</dt><dd><span id="rtt">–</span><i>ms</i></dd></div>
+      </dl>
+
+    </div>
+
+    <!-- histórico -->
+    <div class="chart">
+      <canvas id="chart"></canvas>
+      <span class="chart__cap">RSSI · janela de 90 s</span>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ controles ══ -->
+  <div class="deck">
+
+    <section class="panel" id="pCol1" style="--d:1">
+      <h2 class="panel__t" id="tCol1">Protocolo e banda</h2>
+
+      <!-- Primeiro de tudo na coluna de propósito: o protocolo manda na camada
+           física inteira, e tudo o que vem abaixo (par, banda, modem) só faz
+           sentido dentro do que ele escolheu. -->
+      <div id="secProto" hidden>
+        <h3 class="panel__sub">Protocolo<i>qual pilha está no ar</i></h3>
+        <div class="field"><select id="proto"></select></div>
+        <p class="silk silk--p" id="protoNote">·</p>
+      </div>
+
+      <!-- Estado do Alfa. Só aparece quando ele é o protocolo em uso: no
+           ExpressLRS estes contadores não existem, e mostrá-los zerados seria
+           inventar medida. -->
+      <div id="secAlfa" hidden>
+        <h3 class="panel__sub">Enlace Alfa<i id="aSub">ID de 96 bits</i></h3>
+        <!-- O papel vem primeiro: ele decide quem fala e quem responde, e
+             trocar reescreve a camada física e reinicia a sessão. -->
+        <!-- Papel como ESCOLHA VISIVEL, e nao lista suspensa: sao duas
+             opcoes, e qual esta valendo decide todo o resto da sessao. Numa
+             lista fechada isso some atras de um clique. -->
+        <div class="field">
+          <label id="aPapelLb">Papel</label>
+          <div class="seg seg--duo" id="aPapel" role="radiogroup"
+               aria-labelledby="aPapelLb"></div>
+        </div>
+        <!-- O nome da rede segue a função porque, na lista do celular, é o
+             único jeito de saber qual placa é qual. Renomear reinicia o AP. -->
+        <div class="field field--inline">
+          <label>Rede WiFi</label><b id="aSsid">·</b>
+        </div>
+        <div class="field field--inline" id="fAVarre" hidden>
+          <label for="aVarre">Varredura<i>joysticks automáticos</i></label>
+          <input id="aVarre" type="checkbox">
+        </div>
+        <!-- Os joysticks do quadro joy_mono_1 NÃO têm controle aqui: a aba
+             Mostradores desenha os sete, e comandá-los é `proto joy <i> <v>`
+             no console. Sete barras de arrastar nesta coluna eram metade da
+             altura da tela para um caso de bancada. -->
+        <div class="field field--inline">
+          <label>Estado</label><b id="aEstado">·</b>
+        </div>
+        <!-- Canal do plano do Alfa. Por BLE não há portadora para mostrar: a
+             linha passa a dizer com quem se está falando, e o rótulo muda
+             junto — ver renderEsp() no app.js. -->
+        <div class="field field--inline">
+          <label id="aCanalLb">Canal</label><b id="aCanal">·</b>
+        </div>
+        <!-- Os dois IDs de 96 bits do enlace, em hexa e EDITAVEIS: 24
+             digitos cada. Gravam na NVS da placa e valem no quadro seguinte.
+             O de cima e o desta placa; o de baixo, o do outro lado. -->
+        <div class="field idrow">
+          <label for="aUid">Meu ID</label>
+          <div class="idrow__in">
+            <input id="aUid" class="hexin" maxlength="24" spellcheck="false"
+                   autocapitalize="off" autocomplete="off">
+            <button class="btn btn--slim" id="aUidGrava" type="button">gravar</button>
+          </div>
+        </div>
+        <div class="field idrow">
+          <label for="aParId">ID do par</label>
+          <div class="idrow__in">
+            <input id="aParId" class="hexin" maxlength="24" spellcheck="false"
+                   autocapitalize="off" autocomplete="off">
+            <button class="btn btn--slim" id="aParGrava" type="button">gravar</button>
+          </div>
+        </div>
+        <p class="silk silk--p" id="aCont">·</p>
+      </div>
+
+      <!-- Transceptor do próprio ESP32: ESP-NOW ou BLE. Um bloco só para os
+           dois — o firmware publica o mesmo formato —, e só com um deles no ar.
+           No BLE o papel é de GAP: o receptor anuncia, o transmissor procura e
+           conecta. Trocar reinicia a pilha e renomeia a rede. -->
+      <div id="secEsp" hidden>
+        <h3 class="panel__sub"><span id="eTitulo">Enlace</span><i id="eSub">rádio do ESP32</i></h3>
+        <div class="field">
+          <label id="ePapelLb">Papel</label>
+          <div class="seg seg--duo" id="ePapel" role="radiogroup"
+               aria-labelledby="ePapelLb"></div>
+        </div>
+        <div class="field field--inline" id="fEVarre" hidden>
+          <label for="eVarre">Varredura<i>joysticks automáticos</i></label>
+          <input id="eVarre" type="checkbox">
+        </div>
+        <div class="field field--inline">
+          <label>Estado</label><b id="eEstado">·</b>
+        </div>
+        <div class="field field--inline">
+          <label>Par</label><b id="ePar">·</b>
+        </div>
+        <p class="silk silk--p" id="eCont">·</p>
+      </div>
+
+      <div class="seg" id="bands" role="group" aria-label="Banda"></div>
+      <div id="secBanda" hidden>
+        <h3 class="panel__sub">Banda<i>onde o enlace opera</i></h3>
+        <div class="field"><select id="banda"></select></div>
+        <p class="silk silk--p" id="bandaNota"></p>
+      </div>
+
+      <div id="secDominio" hidden>
+        <h3 class="panel__sub">Plano de banda<i>canais de salto</i></h3>
+        <div class="field"><select id="dominio"></select></div>
+        <p class="silk silk--p" id="planoNota"></p>
+      </div>
+
+      <div id="secTaxa" hidden>
+        <h3 class="panel__sub">Taxa de pacote<i>define a banda</i></h3>
+        <div class="field"><select id="taxa"></select></div>
+        <p class="silk silk--p" id="taxaNota"></p>
+      </div>
+      <p class="note" id="bandNote">·</p>
+
+      <!-- Telemetria: so aparece no transmissor, que e quem decide a razao.
+           O receptor obedece ao que vem no SYNC. -->
+      <div id="secTlm" hidden>
+        <h3 class="panel__sub">Telemetria<i>canal de volta</i></h3>
+        <div class="field" id="fTlm">
+          <select id="tlm"></select>
+        </div>
+        <div class="field"><span>em uso</span><b id="tlmEf">--</b></div>
+        <p class="silk silk--p" id="tlmNota"></p>
+      </div>
+
+      <div id="secPeer">
+      <h3 class="panel__sub">Par de teste<i>o outro lado</i></h3>
+      <div class="field">
+        <select id="peer"></select>
+      </div>
+      <p class="silk silk--p" id="peerNote">·</p>
+
+      </div>
+
+      <div id="secBind">
+      <h3 class="panel__sub">Binding ExpressLRS<i>frase</i></h3>
+      <div class="field">
+        <input id="phrase" type="text" maxlength="63"
+               placeholder="frase do transmissor" spellcheck="false">
+        <button class="btn btn--ghost" id="phraseSave">Gravar</button>
+      </div>
+      </div>
+
+      <!-- UID fora do bloco da frase: a frase nao e guardada pelo firmware,
+           mas o UID e enviado sempre e e o que identifica o par. -->
+      <p class="silk silk--p" id="secUid">
+        UID <b id="uid">·</b> &middot; IQ <b id="iq">·</b>
+      </p>
+
+      <div id="secHw">
+      <h3 class="panel__sub">Hardware<i>porta ANT</i></h3>
+      <!-- select em vez de botões de propósito: com três grades iguais de
+           150/433/470/868/915 na mesma tela, o usuário não distinguia o que
+           era ajuste de rádio do que era declaração de como a placa está
+           montada. Esta é ajuste-uma-vez, então perde destaque. -->
+      <div class="field field--inline">
+        <label for="match">Rede de casamento<i>solda</i></label>
+        <select id="match" class="sel--slim"></select>
+      </div>
+      <p class="warn" id="matchWarn" hidden>
+        A frequência sintonizada está fora desta rede. O rádio transmite, mas
+        com VSWR alto — alcance ruim e estresse no PA.
+      </p>
+          </div>
+
+    </section>
+
+    <section class="panel" id="pCol2" style="--d:2">
+      <h2 class="panel__t" id="tCol2">Modem</h2>
+
+      <div id="secModem">
+      <div class="duo">
+        <div class="field">
+          <label for="freq">Frequência<i>MHz</i></label>
+          <input id="freq" type="number" step="0.001" inputmode="decimal">
+        </div>
+        <!-- O campo numerico fica no HTML, oculto, so como retaguarda: se o
+             estado chegar sem faixa (`pmin`/`pmax`) o seletor nao tem o que
+             montar. Na tela quem manda e o seletor -- potencia e escolha
+             dentro do que a banda permite, nao numero livre: o campo aceitava
+             63 dBm numa banda que vai ate 12. -->
+        <div class="field" id="fPower" hidden>
+          <label for="power">Potência<i>dBm</i></label>
+          <input id="power" type="number" step="1">
+        </div>
+        <div class="field" id="fPowerSel">
+          <label for="powerSel">Potência<i>dBm</i></label>
+          <select id="powerSel"></select>
+        </div>
+      </div>
+      <p class="hint" id="powerHint">·</p>
+
+      <div class="trio">
+        <div class="field">
+          <label for="sf">SF</label>
+          <select id="sf"></select>
+        </div>
+        <div class="field">
+          <label for="bw">BW<i>kHz</i></label>
+          <select id="bw"></select>
+        </div>
+        <div class="field">
+          <label for="cr">CR<i>4/N</i></label>
+          <select id="cr"></select>
+        </div>
+      </div>
+
+      <button class="btn btn--go" id="apply">Aplicar</button>
+      </div>
+
+      <!-- TELEMETRIA em bloco proprio, e nao no fim de "Trafego".
+           La ela ficava abaixo da dobra numa coluna alta -- some da vista sem
+           sumir da pagina, que e pior que nao existir -- e desaparecia inteira
+           quando o painel esconde os controles de trafego (o firmware do
+           receptor ExpressLRS nao os atende). Telemetria vale nos dois.
+
+           `tlmPer`, e nao `tlm`: `tlm` ja e o seletor de RAZAO de telemetria do
+           ExpressLRS. Dois elementos com o mesmo id fazem $('tlm') devolver o
+           primeiro do DOM e os dois controles escrevem um sobre o outro. -->
+      <div id="secTlmPer">
+        <h3 class="panel__sub">Telemetria</h3>
+        <div class="field field--inline">
+          <label for="quiet">Modo silencioso<i>só $T</i></label>
+          <input id="quiet" type="checkbox" class="sw">
+        </div>
+        <!-- RAZAO, nao periodo: uma linha a cada N quadros do enlace, como o
+             1:128 do ExpressLRS. Periodo em ms nao acompanha a taxa -- 1 s e
+             denso num enlace de 20 Hz e ralo num de 500 Hz. -->
+        <div class="field">
+          <label for="tlmRaz">Razão<i>1 linha a cada N quadros</i></label>
+          <select id="tlmRaz"></select>
+        </div>
+        <p class="hint" id="tlmNotaRaz">·</p>
+        <div class="row">
+          <button class="btn" id="tlmagora">Ler agora</button>
+        </div>
+      </div>
+
+      <!-- No ExpressLRS o modem e consequencia da taxa, nao ajuste: vira
+           leitura. Campo desabilitado parece formulario quebrado, e um <select>
+           sem a opcao correspondente renderiza VAZIO em vez de "·". -->
+      <dl class="spec" id="specModem" hidden>
+        <div><dt>Frequência</dt><dd id="mFreq">·</dd></div>
+        <div><dt>Fator de espalhamento</dt><dd id="mSf">·</dd></div>
+        <div><dt>Largura de faixa</dt><dd id="mBw">·</dd></div>
+        <div><dt>Taxa de código</dt><dd id="mCr">·</dd></div>
+        <div><dt>Tempo no ar</dt><dd id="mToa">·</dd></div>
+      </dl>
+    </section>
+
+    <section class="panel" id="pCol3" style="--d:3">
+      <h2 class="panel__t" id="tCol3">Tráfego</h2>
+
+      <!-- Mensagem, Enviar e Ping sairam: eram do protocolo de TEXTO entre
+           duas placas nossas, e hoje nenhum modo do painel o usa -- no
+           ExpressLRS nao ha rota que os atenda e no Alfa um quadro de texto
+           entraria no meio do enlace. Continuam no console (`send`, `ping`).
+
+           Ficou o beacon, que e o gerador do teste de alcance, e ele so
+           aparece quando ha teste de alcance para gerar. -->
+      <div id="secTrafego">
+      <div class="field field--inline">
+        <label for="beacon">Beacon automático</label>
+        <input id="beacon" type="checkbox" class="sw">
+      </div>
+      <div class="field">
+        <label for="interval">Intervalo<i>ms</i></label>
+        <input id="interval" type="number" step="100" min="200">
+      </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ registro ═══ -->
+  <section class="panel panel--log" style="--d:4">
+    <h2 class="panel__t">Registro<button class="btn btn--ghost" id="clear">limpar</button></h2>
+    <ol class="log" id="log" aria-live="polite"></ol>
+  </section>
+
+  </div><!-- /viewBench -->
+
+  <!-- ═══════════════════════════════════════════════════════ mostradores ═ -->
+  <!-- Vista de RELANCE, portada de tools/serial.
+       A Bancada e densa de proposito: e onde se ajusta e se diagnostica. Mas
+       durante um teste de alcance ninguem esta ajustando nada — esta olhando de
+       longe, muitas vezes de pe ao lado da placa, para saber se o enlace ainda
+       existe. Numero grande com barra embaixo se le a metros; um grafico de
+       90 s e uma grade de controles, nao. -->
+  <section class="panel panel--gauges" id="viewGauges" hidden>
+    <h2 class="panel__t">Mostradores<span class="silk" id="gWho">·</span></h2>
+
+    <div class="gauges">
+      <div class="gauge">
+        <div class="gauge__lb">SINAL RECEBIDO</div>
+        <div class="gauge__val"><output id="gRssi">–––.–</output><span>dBm</span></div>
+        <div class="meter"><i id="gRssiBar" style="width:0%"></i></div>
+        <p class="gauge__note" id="gRssiNote">·</p>
+      </div>
+
+      <div class="gauge">
+        <div class="gauge__lb">QUALIDADE DE ENLACE</div>
+        <div class="gauge__val"><output id="lq">––</output><span>%</span></div>
+        <div class="meter"><i id="lqBar" style="width:0%"></i></div>
+        <p class="gauge__note" id="lqNote">·</p>
+      </div>
+    </div>
+
+    <!-- Joysticks e chaves do ExpressLRS.
+         So aparece quando ha RCDATA valido chegando: fora do modo escuta, ou
+         sem transmissor no ar, quatro barras no meio seriam joysticks de um
+         piloto imaginario. -->
+    <div class="sticks" id="sticks" hidden>
+      <div class="sticks__hd">
+        JOYSTICKS E CHAVES
+        <b id="rcRate">·</b>
+        <!-- Varredura dos joysticks: os sete andam sozinhos entre -100 e +100.
+             So no papel de transmissor, e so no Alfa -- e o mesmo comando da
+             caixa "Varredura" da coluna da bancada. -->
+        <button class="simbtn" id="simJoy" type="button" hidden>simular</button>
+      </div>
+      <div class="chans" id="chans"></div>
+      <div class="switches" id="switches"></div>
+      <!-- Emergência: bit 16 do quadro Alfa, 1 = ARMADA. Botão, e não
+           mostrador, porque é o comando que se procura com pressa. -->
+      <button class="emerg" id="emerg" type="button" hidden>·</button>
+
+      <!-- COMANDO dos joysticks, ao lado dos mostradores deles.
+           So no papel de transmissor do Alfa: e este lado que gera os valores
+           do quadro. Ficava na coluna da bancada, longe das barras que
+           mostram o efeito -- mexer num canto e conferir no outro. -->
+      <div class="joycmd" id="joyCmd" hidden></div>
+
+      <p class="gauge__note" id="rcNote">·</p>
+    </div>
+
+    <p class="gauge__note" id="rcOff">
+      Joysticks aparecem no <b>modo escuta</b> (par <code>elrs2g4</code> ou
+      <code>elrs900</code>) com um transmissor ExpressLRS no ar — ou no
+      <b>protocolo Alfa</b>, que carrega sete joysticks e as chaves.
+    </p>
+
+    <div class="gdigits" id="gDigits">
+      <div class="gdigits__row"><span>SNR</span><b id="gSnr">––.–</b><i>dB</i></div>
+      <div class="gdigits__row"><span>Tempo no ar</span><b id="gToa">–––</b><i>ms</i></div>
+      <div class="gdigits__row"><span>Potência</span><b id="gPwr">––</b><i>dBm</i></div>
+      <div class="gdigits__row"><span>Frequência</span><b id="gFreq">–––.–––</b><i>MHz</i></div>
+      <div class="gdigits__row"><span>Recebidos</span><b id="gRx">0</b><i></i></div>
+      <div class="gdigits__row"><span>Perdidos</span><b id="gLost">0</b><i></i></div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ banco ═════ -->
+  <section class="panel panel--db" id="viewDb" hidden>
+    <h2 class="panel__t">Campanhas<button class="btn btn--ghost" id="dbReload">recarregar</button></h2>
+    <p class="note" id="dbNote">·</p>
+
+    <!-- Credenciais pedidas na hora, nunca guardadas no repositorio.
+         A pagina e publica: qualquer chave versionada aqui viraria publica
+         junto. Pedir ao abrir tem o efeito lateral util de a mesma pagina
+         servir a qualquer projeto Supabase, nao so ao desta bancada. -->
+    <div class="db__auth" id="dbAuth" hidden>
+      <p class="silk silk--p">
+        Informe o projeto Supabase para ler as campanhas. Os valores ficam
+        <b>somente neste navegador</b> e não são enviados a lugar nenhum além do
+        seu próprio banco.
+      </p>
+      <div class="field">
+        <label for="sbUrl">URL do projeto<i>https://xxxx.supabase.co</i></label>
+        <input id="sbUrl" type="url" spellcheck="false" placeholder="https://xxxx.supabase.co">
+      </div>
+      <div class="field">
+        <label for="sbKey">Anon key<i>Project Settings → API → anon public</i></label>
+        <input id="sbKey" type="password" spellcheck="false" placeholder="eyJhbGciOi…">
+      </div>
+      <button class="btn btn--go" id="sbSave" type="button">Conectar</button>
+    </div>
+
+    <p class="silk silk--p db__who" id="dbWho" hidden>
+      Conectado a <b id="dbHost">·</b>
+      <button class="btn btn--ghost" id="sbForget" type="button">trocar / esquecer</button>
+    </p>
+
+    <div class="db">
+      <ol class="db__list" id="dbList"></ol>
+
+      <div class="db__main">
+        <!-- O mapa mora num invólucro, e não solto: em tela cheia quem muda de
+             posição é o invólucro, e o div do Leaflet continua sendo o mesmo
+             elemento. Recriar o mapa ao expandir perderia o enquadramento e
+             recarregaria todos os tiles. -->
+        <div class="db__mapwrap" id="dbMapWrap">
+          <div class="db__map" id="dbMap"></div>
+          <button class="db__full" id="dbFull" type="button">⤢ tela cheia</button>
+          <!-- Instrucao da regua. Fica fora do mapa para nao virar camada
+               Leaflet e nao ser limpa junto com as medidas. -->
+          <p class="db__dica" id="dbMapDica" hidden></p>
+        </div>
+
+        <dl class="db__stats" id="dbStats" hidden>
+          <div><dt>Pontos</dt><dd id="dbPts">·</dd></div>
+          <div><dt>Alcance</dt><dd id="dbReach">·</dd></div>
+          <div><dt>Sem enlace</dt><dd id="dbLost">·</dd></div>
+          <div><dt>Melhor RSSI</dt><dd id="dbBest">·</dd></div>
+          <div><dt>Pior RSSI</dt><dd id="dbWorst">·</dd></div>
+          <div><dt>Sem RSSI</dt><dd id="dbNoRssi">·</dd></div>
+        </dl>
+
+        <div class="db__tablewrap">
+          <table class="db__table">
+            <thead>
+              <tr>
+                <th>hora</th><th>latitude</th><th>longitude</th><th>alt</th>
+                <th>± m</th><th>dist</th><th>RSSI</th><th>SNR</th><th>LQ</th><th>enlace</th>
+              </tr>
+            </thead>
+            <tbody id="dbRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="feet">
+    <i class="screw screw--bl" aria-hidden="true"></i>
+    <i class="screw screw--br" aria-hidden="true"></i>
+    <span class="silk">PROTÓTIPO · NÃO CERTIFICADO · USO EM BANCADA</span>
+  </footer>
+
+</div>
+
+<!-- Conveniencia local. Ausente na placa e no GitHub Pages, e nesses casos o
+     onerror deixa a falha silenciosa: o painel cai no formulario que pede as
+     credenciais, que e o caminho normal. -->
+<script src="supabase.config.js" onerror="window.SUPABASE_LOCAL=null"></script>
+<script src="app.js"></script>
+</body>
+</html>
