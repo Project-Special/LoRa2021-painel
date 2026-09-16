@@ -13,7 +13,11 @@
      Server e GitHub Pages — e de quebra evita a requisicao automatica
      de /favicon.ico que o navegador faz quando nao ha <link>. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%230d1211%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%236cf0a0%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M11.5%2020.5a6.4%206.4%200%200%201%200-9%22%2F%3E%3Cpath%20d%3D%22M20.5%2011.5a6.4%206.4%200%200%201%200%209%22%2F%3E%3Cpath%20d%3D%22M7%2025a12.7%2012.7%200%200%201%200-18%22%2F%3E%3Cpath%20d%3D%22M25%207a12.7%2012.7%200%200%201%200%2018%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%223.1%22%20fill%3D%22%236cf0a0%22%2F%3E%3C%2Fsvg%3E">
-<link rel="stylesheet" href="style.css">
+<!-- ?v= para o navegador nao servir o par DESCASADO: a placa manda os tres
+     arquivos com no-cache, mas pelo Live Server e pelo GitHub Pages o
+     app.js fica em cache e a pagina abre com HTML novo e codigo velho.
+     BUMPAR a cada publicacao do painel. -->
+<link rel="stylesheet" href="style.css?v=20260916">
 </head>
 <body>
 
@@ -586,6 +590,6 @@
      onerror deixa a falha silenciosa: o painel cai no formulario que pede as
      credenciais, que e o caminho normal. -->
 <script src="supabase.config.js" onerror="window.SUPABASE_LOCAL=null"></script>
-<script src="app.js"></script>
+<script src="app.js?v=20260916"></script>
 </body>
 </html>

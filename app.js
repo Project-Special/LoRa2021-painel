@@ -1882,6 +1882,22 @@ async function dbOpen(item) {
       if (page.length < 1000) break;
     }
     const head = await sb(`range_sessions?select=origin_lat,origin_lon&id=eq.${item.id}`);
+
+    // "Sem sinal" e decidido AQUI, na busca, e nao em cada desenho: o mapa, a
+    // tabela e os numeros passam a contar a mesma coisa, e quem ler o codigo
+    // acha a regra num lugar so.
+    //
+    // Duas evidencias, e qualquer uma basta:
+    //   `linked` falso  o firmware nao considerava o enlace vivo naquele
+    //                   instante -- e o `link=` da linha $T.
+    //   sem RSSI        nulo, ou o ZERO que o $T emite quando nao ha medida
+    //                   (ver textoRssi() no firmware). Zero dBm nao acontece
+    //                   num teste de alcance; -200 ou menos tambem e "nada".
+    for (const r of rows) {
+      const v = r.rssi_dbm == null ? null : Number(r.rssi_dbm);
+      r.semSinal = !r.linked || v === null || v === 0 || v <= -200;
+    }
+
     DB.session = { item, rows, origin: head[0] || null };
 
     renderDbStats();
@@ -1897,7 +1913,7 @@ function renderDbStats() {
   const rows = DB.session.rows;
   const linked = rows.filter((r) => r.linked && r.distance_m != null);
   const rssi = rows.map((r) => r.rssi_dbm).filter((v) => v != null);
-  const lost = rows.filter((r) => !r.linked).length;
+  const lost = rows.filter((r) => r.semSinal).length;
   const noRssi = rows.length - rssi.length;
 
   $('dbStats').hidden = false;
@@ -2031,7 +2047,7 @@ async function renderDbMap() {
   for (let i = 1; i < rows.length; i++) {
     // O trecho so e verde se havia enlace nas DUAS pontas: meio caminho sem
     // link nao e meio verde, e perda.
-    const segOk = rows[i - 1].linked && rows[i].linked;
+    const segOk = !rows[i - 1].semSinal && !rows[i].semSinal;
     if (segOk !== runOk) {
       flush();
       run = [[rows[i - 1].latitude, rows[i - 1].longitude]];
@@ -2049,13 +2065,13 @@ async function renderDbMap() {
   //
   // Em DUAS passadas, os sem sinal por ultimo: pontos proximos se sobrepoem,
   // e o vermelho e justamente o que se procura -- nao pode ficar por baixo.
-  const semSinalPorCima = [...rows.filter((r) => r.linked), ...rows.filter((r) => !r.linked)];
+  const semSinalPorCima = [...rows.filter((r) => !r.semSinal), ...rows.filter((r) => r.semSinal)];
   for (const r of semSinalPorCima) {
     L.circleMarker([r.latitude, r.longitude], {
       radius: 5,
       color: '#ffffff',
       weight: 1.5,
-      fillColor: r.linked ? SINAL_OK() : TRAIL_DOWN(),
+      fillColor: r.semSinal ? TRAIL_DOWN() : SINAL_OK(),
       fillOpacity: 1,
     })
       .bindPopup(
@@ -2063,7 +2079,7 @@ async function renderDbMap() {
         `SNR ${r.snr_db == null ? '—' : r.snr_db} dB<br>` +
         `dist ${fmtDist(r.distance_m)}<br>` +
         `${new Date(r.t).toLocaleTimeString('pt-BR')}` +
-        (r.linked ? '' : `<br><b style="color:${TRAIL_DOWN()}">sem enlace</b>`),
+        (r.semSinal ? `<br><b style="color:${TRAIL_DOWN()}">sem sinal</b>` : ''),
       )
       .addTo(DB.layer);
   }
