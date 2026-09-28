@@ -17,7 +17,7 @@
      arquivos com no-cache, mas pelo Live Server e pelo GitHub Pages o
      app.js fica em cache e a pagina abre com HTML novo e codigo velho.
      BUMPAR a cada publicacao do painel. -->
-<link rel="stylesheet" href="style.css?v=20260928">
+<link rel="stylesheet" href="style.css?v=20261001">
 </head>
 <body>
 
@@ -201,6 +201,15 @@
              junto — ver renderEsp() no app.js. -->
         <div class="field field--inline">
           <label id="aCanalLb">Canal</label><b id="aCanal">·</b>
+        </div>
+        <!-- PHY do BLE: alcance contra taxa. So aparece com o Alfa por BLE, e
+             precisa valer nas DUAS placas -- com uma so, a negociacao cai em
+             1M. A nota abaixo diz qual esta de fato em uso. -->
+        <div class="field" id="fAPhy" hidden>
+          <label id="aPhyLb">Alcance BLE</label>
+          <div class="seg seg--duo" id="aPhy" role="radiogroup"
+               aria-labelledby="aPhyLb"></div>
+          <p class="silk silk--p" id="aPhyNota">·</p>
         </div>
         <!-- Os dois IDs de 96 bits do enlace, em hexa e EDITAVEIS: 24
              digitos cada. Gravam na NVS da placa e valem no quadro seguinte.
@@ -590,6 +599,6 @@
      onerror deixa a falha silenciosa: o painel cai no formulario que pede as
      credenciais, que e o caminho normal. -->
 <script src="supabase.config.js" onerror="window.SUPABASE_LOCAL=null"></script>
-<script src="app.js?v=20260928"></script>
+<script src="app.js?v=20261001"></script>
 </body>
 </html>

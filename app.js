@@ -681,10 +681,70 @@ function buildPapelEsp() {
 /* O Alfa por BLE nao tem bloco proprio: o enlace e o mesmo, e ele ja esta
    desenhado acima. O que muda e a linha do CANAL -- por BLE nao ha portadora --,
    que passa a dizer com quem se esta falando e com que sinal. */
+/* Alcance do BLE: 1M ou Coded S=8. O Coded troca 1 Mbps por 125 kbps e ganha
+   ~8 dB -- perto do chao, ~1,6x a distancia. O quadro do Alfa tem 15 bytes a
+   cada 61 ms, entao a taxa nao faz falta. */
+const PHYS = [
+  { id: '1m', name: 'Normal · 1M', nota: 'PHY de sempre, 1 Mbps' },
+  { id: 'coded', name: 'Estendido · Coded', nota: 'LE Long Range S=8: ~8 dB a mais, 125 kbps' },
+];
+let phyPronto = false;
+
+function buildPhy() {
+  const el = $('aPhy');
+  if (!el || phyPronto) return;
+  phyPronto = true;
+  for (const p of PHYS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.phy = p.id;
+    b.setAttribute('role', 'radio');
+    b.title = p.nota;
+    b.textContent = p.name;
+    b.addEventListener('click', async () => {
+      try {
+        if (LINK.mode !== 'http') {
+          await serialWrite(`ble phy ${p.id}
+`);
+          log('sys', `alcance BLE: ${p.name} (pela USB)`);
+          return;
+        }
+        render(await api('api/config', { bphy: p.id }), true);
+        log('sys', `alcance BLE: ${p.name}`);
+      } catch (e) {
+        log('err', `alcance BLE: ${e.message}`);
+      }
+    });
+    el.appendChild(b);
+  }
+}
+
+function renderPhy(b) {
+  const campo = $('fAPhy');
+  if (!campo) return;
+  campo.hidden = !b;
+  if (!b) return;
+  buildPhy();
+  for (const btn of $('aPhy').children) {
+    const meu = btn.dataset.phy === b.phy;
+    btn.setAttribute('aria-pressed', meu ? 'true' : 'false');
+    btn.setAttribute('aria-checked', meu ? 'true' : 'false');
+  }
+  // O EM USO vem do controlador, e e o que conta: pedir Coded numa placa so
+  // deixa a conexao em 1M, e a nota tem de dizer isso por extenso.
+  const uso = { 1: '1M', 2: '2M', 3: 'Coded' }[b.phyUso];
+  let nota;
+  if (!b.conectado) nota = 'vale na proxima conexao';
+  else if (b.phy === 'coded' && uso !== 'Coded') nota = `em uso: ${uso || '—'} — ligue o Coded tambem na outra placa`;
+  else nota = `em uso: ${uso || '—'}`;
+  $('aPhyNota').textContent = nota;
+}
+
 function renderAlfaPorBle(s) {
   const b = s.ble;
   const sub = $('aSub');
   const lb = $('aCanalLb');
+  renderPhy(b);
   if (!b) {
     if (sub) sub.textContent = 'ID de 96 bits';
     if (lb) lb.textContent = 'Canal';
