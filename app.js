@@ -1905,7 +1905,14 @@ async function dbOpen(item) {
     await renderDbMap();
     dbNote(`"${item.name}" — ${rows.length} pontos.`);
   } catch (e) {
-    dbNote(`Falha ao baixar: ${e.message}`);
+    // ONDE quebrou, e nao so o que quebrou.
+    //
+    // "Cannot read properties of undefined" sem origem nao diz nada: o mesmo
+    // texto sai do Leaflet, do fetch e daqui. A primeira linha da pilha nomeia
+    // a funcao e a linha, e e o que permite consertar sem reproduzir.
+    const onde = (e.stack || '').split(/\n/)[1] || '';
+    console.error('dbOpen', e);
+    dbNote(`Falha ao baixar: ${e.message}${onde ? ` — em ${onde.trim()}` : ''}`);
   }
 }
 
@@ -2084,9 +2091,28 @@ async function renderDbMap() {
       .addTo(DB.layer);
   }
 
-  const pts = rows.map((r) => [r.latitude, r.longitude]);
+  // Enquadra so pontos VALIDOS: uma linha sem GPS (latitude nula) entra no
+  // bounds como NaN e leva o Leaflet a contas que terminam em erro dentro
+  // dele, longe daqui.
+  const pts = rows
+    .filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+    .map((r) => [r.latitude, r.longitude]);
   if (hasOrigin) pts.push([o.origin_lat, o.origin_lon]);
-  DB.map.fitBounds(L.latLngBounds(pts).pad(0.15));
+  if (!pts.length) return;
+
+  // E so com o container MEDIDO: com a aba recem-aberta ou o mapa em tela
+  // cheia no meio da transicao, ele tem tamanho zero, e ai o Leaflet divide
+  // por zero calculando o zoom. Sem tamanho, tenta de novo no quadro seguinte.
+  const alvo = L.latLngBounds(pts).pad(0.15);
+  const caixa = DB.map.getContainer();
+  if (caixa.clientWidth > 0 && caixa.clientHeight > 0) {
+    DB.map.fitBounds(alvo);
+  } else {
+    requestAnimationFrame(() => {
+      DB.map.invalidateSize();
+      DB.map.fitBounds(alvo);
+    });
+  }
 }
 
 /* Regua: distancia entre dois pontos quaisquer do mapa.
